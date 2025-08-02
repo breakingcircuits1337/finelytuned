@@ -1,0 +1,11 @@
+This is a sample training text for testing the AI fine-tuning application.
+The model will learn from this text and similar examples.
+Fine-tuning allows us to adapt pre-trained models to specific tasks.
+This process can take time, especially on CPU, but it's worth the wait.
+Slow and steady wins the race in machine learning.
+Quality data is more important than quantity.
+The "Slow Go Mofo" application makes fine-tuning accessible to everyone.
+Even small datasets can produce meaningful results with proper training.
+Patience is a virtue when training neural networks.
+Every epoch brings us closer to a better model.
+
