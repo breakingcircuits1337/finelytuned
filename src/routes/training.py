@@ -1,8 +1,10 @@
-from flask import Blueprint, request, jsonify, current_app
+from flask import Blueprint, request, jsonify, current_app, send_file
 from werkzeug.utils import secure_filename
 import os
 import threading
+import traceback
 from src.services.training_service import TrainingService
+from src.config import Config
 
 training_bp = Blueprint('training', __name__)
 training_service = TrainingService()
@@ -120,3 +122,58 @@ def get_available_models():
         {'name': 'microsoft/DialoGPT-small', 'description': 'DialoGPT Small (117M parameters)'}
     ]
     return jsonify(models), 200
+
+# ====== NEW ENDPOINTS ======
+
+@training_bp.route('/chat', methods=['POST'])
+def chat():
+    """Generate a reply from the fine-tuned model to a user prompt."""
+    try:
+        data = request.get_json()
+        prompt = data.get("prompt", "")
+        max_new_tokens = data.get("max_new_tokens", 128)
+        if not prompt.strip():
+            return jsonify({"error": "Prompt required"}), 400
+        reply = training_service.generate_response(prompt, max_new_tokens)
+        return jsonify({"reply": reply})
+    except FileNotFoundError:
+        return jsonify({"error": "No fine-tuned model found. Please train a model first."}), 404
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"error": f"Failed to generate reply: {str(e)}"}), 500
+
+@training_bp.route('/download', methods=['GET'])
+def download():
+    """Download the latest fine-tuned model as a zip file."""
+    try:
+        zip_path = training_service.create_zip()
+        return send_file(
+            zip_path,
+            mimetype="application/zip",
+            as_attachment=True,
+            download_name="fine_tuned_model.zip"
+        )
+    except FileNotFoundError:
+        return jsonify({"error": "No fine-tuned model found. Please train a model first."}), 404
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"error": f"Failed to create zip: {str(e)}"}), 500
+
+@training_bp.route('/push_hf', methods=['POST'])
+def push_hf():
+    """Push the latest fine-tuned model to the Hugging Face Hub."""
+    try:
+        data = request.get_json()
+        repo_name = data.get("repo_name")
+        private = data.get("private", True)
+        token = os.getenv("HF_TOKEN", Config.HF_TOKEN)
+        if not repo_name or not token:
+            return jsonify({"error": "repo_name and Hugging Face token required"}), 400
+
+        training_service.push_to_hf(repo_name=repo_name, private=private, token=token)
+        return jsonify({"success": True, "repo_url": f"https://huggingface.co/{repo_name}"})
+    except FileNotFoundError:
+        return jsonify({"error": "No fine-tuned model found. Please train a model first."}), 404
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"error": f"Failed to push to Hugging Face: {str(e)}"}), 500

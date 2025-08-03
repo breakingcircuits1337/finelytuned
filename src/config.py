@@ -11,3 +11,4 @@ class Config:
     )
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     UPLOAD_FOLDER = os.getenv("UPLOAD_FOLDER", "uploads")
+    HF_TOKEN = os.getenv("HF_TOKEN", "")

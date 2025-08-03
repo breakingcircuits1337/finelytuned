@@ -4,12 +4,16 @@ import time
 import torch
 from transformers import (
     AutoTokenizer, AutoModelForCausalLM,
-    TrainingArguments, Trainer, DataCollatorForLanguageModeling
+    TrainingArguments, Trainer, DataCollatorForLanguageModeling, pipeline
 )
 from datasets import Dataset
 import pandas as pd
 from threading import Lock
 import logging
+import shutil
+import tempfile
+from huggingface_hub import HfApi, upload_folder, create_repo
+from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +32,10 @@ class TrainingService:
             'message': 'Ready to start training'
         }
         self.should_stop = False
+
+        self.model_save_path = './models/fine_tuned_final'
+        self.inference_model = None
+        self.inference_tokenizer = None
 
     def is_training(self):
         return self.is_training_flag
@@ -249,10 +257,12 @@ class TrainingService:
                     progress=95,
                     message='Saving model...'
                 )
-                model_save_path = './models/fine_tuned_final'
+                model_save_path = self.model_save_path
                 os.makedirs(model_save_path, exist_ok=True)
                 trainer.save_model(model_save_path)
                 tokenizer.save_pretrained(model_save_path)
+                self.inference_model = None  # Invalidate cache
+                self.inference_tokenizer = None
                 self.update_progress(
                     status='completed',
                     progress=100,
@@ -280,4 +290,55 @@ class TrainingService:
         self.update_progress(
             status='stopping',
             message='Stopping training...'
+        )
+
+    # --- Inference & Model Management Extensions ---
+
+    def get_latest_model_path(self) -> str:
+        """Return model save path if exists, else raise FileNotFoundError."""
+        if os.path.isdir(self.model_save_path) and os.path.exists(os.path.join(self.model_save_path, "config.json")):
+            return self.model_save_path
+        raise FileNotFoundError("No fine-tuned model artefacts found. Please train a model first.")
+
+    def load_for_inference(self):
+        """Load the model/tokenizer for inference if not already loaded."""
+        if self.inference_model is not None and self.inference_tokenizer is not None:
+            return self.inference_model, self.inference_tokenizer
+        model_path = self.get_latest_model_path()
+        self.inference_tokenizer = AutoTokenizer.from_pretrained(model_path)
+        self.inference_model = AutoModelForCausalLM.from_pretrained(model_path)
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.inference_model = self.inference_model.to(device)
+        return self.inference_model, self.inference_tokenizer
+
+    def generate_response(self, prompt: str, max_new_tokens: int = 128) -> str:
+        """Generate a model reply to a prompt with the fine-tuned model."""
+        model, tokenizer = self.load_for_inference()
+        device = 0 if torch.cuda.is_available() else -1
+        generator = pipeline("text-generation", model=model, tokenizer=tokenizer, device=device)
+        outputs = generator(prompt, max_new_tokens=max_new_tokens, do_sample=True, pad_token_id=tokenizer.eos_token_id)
+        return outputs[0]["generated_text"]
+
+    def create_zip(self) -> str:
+        """Create a zip file of the model artefacts and return its path."""
+        model_dir = self.get_latest_model_path()
+        with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
+            zip_path = tmp.name
+        shutil.make_archive(zip_path.replace(".zip", ""), "zip", model_dir)
+        # make_archive adds .zip again
+        final_path = zip_path.replace(".zip", "") + ".zip"
+        return final_path
+
+    def push_to_hf(self, repo_name: str, private: bool, token: str) -> None:
+        """Push the latest model to Hugging Face Hub."""
+        model_dir = self.get_latest_model_path()
+        api = HfApi(token=token)
+        # Create repo (won't error if already exists for user)
+        create_repo(repo_id=repo_name, token=token, private=private, exist_ok=True)
+        upload_folder(
+            repo_id=repo_name,
+            folder_path=model_dir,
+            allow_patterns=["*.bin", "*.json", "*.txt", "*.model", "*.py"],
+            token=token,
+            repo_type="model",
         )
