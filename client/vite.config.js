@@ -12,5 +12,10 @@ export default defineConfig({
   build: {
     outDir: path.resolve(__dirname, '../static'),
     emptyOutDir: true
+  },
+  server: {
+    proxy: {
+      '/api': 'http://localhost:5000'
+    }
   }
 })

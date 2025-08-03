@@ -1,0 +1,22 @@
+/* Custom styles for AI Fine-Tuning App - originally from App.jsx */
+
+body {
+  font-family: 'Inter', system-ui, Arial, sans-serif;
+}
+
+input, textarea, select, button {
+  font-family: inherit;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  background: #f4f4f4;
+}
+::-webkit-scrollbar-thumb {
+  background: #e0e7ff;
+  border-radius: 8px;
+}
+
+.bg-gradient-to-br {
+  background: linear-gradient(135deg, #f3f4f6 0%, #e0e7ff 100%);
+}
