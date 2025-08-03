@@ -86,14 +86,14 @@ class TrainingService:
 
     def _count_samples(self, file_path):
         try:
-            if file_path.endswith('.txt'):
+            if file_path and file_path.endswith('.txt'):
                 with open(file_path, 'r', encoding='utf-8') as f:
                     lines = f.readlines()
                     return len([line for line in lines if line.strip()])
-            elif file_path.endswith('.csv'):
+            elif file_path and file_path.endswith('.csv'):
                 df = pd.read_csv(file_path)
                 return len(df)
-            elif file_path.endswith(('.jsonl', '.json')):
+            elif file_path and file_path.endswith(('.jsonl', '.json')):
                 with open(file_path, 'r', encoding='utf-8') as f:
                     if file_path.endswith('.jsonl'):
                         lines = f.readlines()
@@ -109,21 +109,21 @@ class TrainingService:
             logger.error(f"Error counting samples: {e}")
             return 100
 
-    def _prepare_dataset(self, file_path, tokenizer, system_prompt=None, pasted_text=None):
+    def _prepare_dataset(self, file_path=None, tokenizer=None, system_prompt=None, pasted_text=None):
         try:
             texts = []
             if pasted_text:
                 texts = [pasted_text]
             elif system_prompt:
                 texts = [system_prompt]
-            elif file_path.endswith('.txt'):
+            elif file_path and file_path.endswith('.txt'):
                 with open(file_path, 'r', encoding='utf-8') as f:
                     texts = [line.strip() for line in f.readlines() if line.strip()]
-            elif file_path.endswith('.csv'):
+            elif file_path and file_path.endswith('.csv'):
                 df = pd.read_csv(file_path)
                 text_column = df.select_dtypes(include=['object']).columns[0]
                 texts = df[text_column].dropna().tolist()
-            elif file_path.endswith(('.jsonl', '.json')):
+            elif file_path and file_path.endswith(('.jsonl', '.json')):
                 with open(file_path, 'r', encoding='utf-8') as f:
                     if file_path.endswith('.jsonl'):
                         for line in f:
@@ -143,6 +143,8 @@ class TrainingService:
                                     texts.append(item)
                         elif isinstance(data, dict) and 'text' in data:
                             texts.append(data['text'])
+            if not texts:
+                raise ValueError("No training data supplied")
             tokenized_texts = []
             for text in texts:
                 tokens = tokenizer(
@@ -169,8 +171,14 @@ class TrainingService:
                 message='Initializing training...',
                 start_time=time.time()
             )
-            model_name = config['model_name']
-            device = config['device']
+            model_name = config.get('model_name')
+            device = config.get('device')
+            file_path = config.get('file_path')
+            system_prompt = config.get('system_prompt')
+            pasted_text = config.get('pasted_text')
+            if not (file_path or system_prompt or pasted_text):
+                raise ValueError("Must provide at least one of: file_path, system_prompt, or pasted_text for training.")
+
             logger.info(f"Loading model: {model_name}")
             tokenizer = AutoTokenizer.from_pretrained(model_name)
             model = AutoModelForCausalLM.from_pretrained(model_name)
@@ -187,10 +195,10 @@ class TrainingService:
                 message='Preparing dataset...'
             )
             dataset = self._prepare_dataset(
-                config.get('file_path'),
-                tokenizer,
-                config.get('system_prompt'),
-                config.get('pasted_text')
+                file_path=file_path,
+                tokenizer=tokenizer,
+                system_prompt=system_prompt,
+                pasted_text=pasted_text
             )
             self.update_progress(
                 status='training',
